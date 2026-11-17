@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG Evaluation Report</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1c1f24; --muted: #646b75; --border: #e1e4e8;
+  --box: #f1f3f5; --good: #2b8a3e; --bad: #c92a2a; --warn: #b35c00; --accent: #3b5bdb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131416; --panel: #1b1d20; --text: #e8eaed; --muted: #9aa0a8; --border: #2c3035;
+    --box: #23262a; --good: #69db7c; --bad: #ff8787; --warn: #ffb057; --accent: #91a7ff;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 72px; }
+h1 { font-size: 22px; margin: 0 0 6px; }
+h2 { font-size: 15px; margin: 32px 0 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+h3 { font-size: 13px; margin: 14px 0 6px; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 2px 20px; color: var(--muted); font-size: 13px; }
+.meta b { color: var(--text); font-weight: 600; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.card .label { font-size: 12px; color: var(--muted); }
+.card .value { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.card .note { font-size: 11px; color: var(--muted); }
+.heuristic { font-size: 10px; font-weight: 600; color: var(--warn); text-transform: uppercase; letter-spacing: .04em; }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: top; font-variant-numeric: tabular-nums; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+.tag { display: inline-block; padding: 0 8px; border-radius: 999px; border: 1px solid currentColor; font-size: 11px; font-weight: 650; white-space: nowrap; }
+.tag.pass { color: var(--good); }
+.tag.retrieval, .tag.pipeline_error { color: var(--bad); }
+.tag.generation { color: var(--warn); }
+.toolbar { margin-bottom: 12px; font-size: 13px; }
+details.result { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+details.result > summary { display: flex; gap: 12px; align-items: center; padding: 10px 14px; cursor: pointer; list-style: none; }
+details.result > summary::-webkit-details-marker { display: none; }
+summary .id { color: var(--muted); font-size: 12px; min-width: 64px; }
+summary .q { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+summary .s { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.body { padding: 4px 14px 14px; border-top: 1px solid var(--border); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.box { background: var(--box); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reasons { color: var(--bad); margin: 8px 0 0; padding-left: 18px; }
+ol.ctx { margin: 0; padding-left: 22px; }
+ol.ctx li { margin-bottom: 6px; }
+ol.ctx li.rel::marker { color: var(--good); font-weight: 700; }
+.ctx .src { color: var(--muted); font-size: 12px; }
+.rel-flag { color: var(--good); font-size: 11px; font-weight: 650; }
+.muted { color: var(--muted); }
+.notes { color: var(--muted); font-size: 12px; margin-top: 28px; }
+body:has(#only-failed:checked) details.passed { display: none; }
+@media (max-width: 720px) { .cols { grid-template-columns: 1fr; } summary .s { display: none; } }
+</style>
+</head>
+<body>
+<main>
+<h1>RAG Evaluation Report</h1>
+<div class="meta">
+  <span>Pipeline <b>{{ meta.pipeline }}</b></span>
+  {% if meta.models %}<span>Model <b>{{ meta.models | join(", ") }}</b></span>{% endif %}
+  <span>Top-K <b>{{ meta.config.top_k }}</b></span>
+  <span>Dataset <b>{{ meta.dataset.path or "in-memory" }}</b></span>
+  <span>Corpus <b>{{ (meta.corpus.path or "pooled from dataset") if meta.corpus else "n/a" }}</b></span>
+  <span>Fingerprint <b>{{ meta.fingerprint }}</b></span>
+  <span>Created <b>{{ meta.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") }}</b></span>
+  <span>rag-eval <b>{{ meta.tool_version }}</b></span>
+</div>
+
+<h2>Summary</h2>
+<div class="cards">
+  <div class="card"><div class="label">Examples</div><div class="value">{{ report.summary.num_examples }}</div></div>
+  <div class="card"><div class="label">Passed</div><div class="value">{{ report.summary.num_passed }}</div></div>
+  {% for stage, count in report.summary.failures_by_stage.items() %}
+  <div class="card"><div class="label">{{ stage.value | replace("_", " ") | capitalize }} failures</div><div class="value">{{ count }}</div></div>
+  {% endfor %}
+  <div class="card"><div class="label">Latency p50 / p95</div><div class="value">{{ report.latency.p50_ms | ms }}</div><div class="note">p95 {{ report.latency.p95_ms | ms }}</div></div>
+</div>
+
+{% for title, names in groups %}
+<h2>{{ title }} metrics</h2>
+<div class="cards">
+  {% for name in names %}
+  {% set metric = report.metrics[name] %}
+  <div class="card">
+    <div class="label">{{ label(name) }}</div>
+    <div class="value">{{ metric.mean | score }}</div>
+    <div class="note">n = {{ metric.count }} of {{ report.summary.num_examples }}</div>
+    {% if name in heuristic %}<div class="heuristic">Heuristic approximation</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+{% set failures = report.failures %}
+<h2>Failed cases ({{ failures | length }})</h2>
+{% if failures %}
+<table>
+  <thead><tr><th>ID</th><th>Stage</th><th>Question</th><th>Reasons</th></tr></thead>
+  <tbody>
+  {% for result in failures %}
+  <tr>
+    <td><a href="#ex-{{ report.results.index(result) + 1 }}">{{ result.id }}</a></td>
+    <td><span class="tag {{ result.failure.stage.value }}">{{ result.failure.stage.value | replace("_", " ") }}</span></td>
+    <td>{{ result.question }}</td>
+    <td>{{ result.failure.reasons | join("; ") }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No failures at the configured thresholds.</p>
+{% endif %}
+
+<h2>Per-question results</h2>
+<div class="toolbar"><label><input type="checkbox" id="only-failed"> Show failed only</label></div>
+{% for result in report.results %}
+<details class="result {{ 'passed' if result.passed else 'failed' }}" id="ex-{{ loop.index }}">
+  <summary>
+    <span class="id">{{ result.id }}</span>
+    {% if result.passed %}<span class="tag pass">pass</span>{% else %}<span class="tag {{ result.failure.stage.value }}">{{ result.failure.stage.value | replace("_", " ") }}</span>{% endif %}
+    <span class="q">{{ result.question }}</span>
+    <span class="s">
+      R@{{ meta.config.top_k }} {{ (result.retrieval.recall_at_k if result.retrieval else None) | score }}
+      &middot; F1 {{ (result.answer_scores.token_f1 if result.answer_scores else None) | score }}
+      &middot; G {{ (result.answer_scores.groundedness if result.answer_scores else None) | score }}
+    </span>
+  </summary>
+  <div class="body">
+    {% if result.failure %}
+    <ul class="reasons">{% for reason in result.failure.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+    {% endif %}
+    <div class="cols">
+      <div>
+        <h3>Generated answer</h3>
+        <div class="box">{{ result.answer if result.answer is not none else "-" }}</div>
+      </div>
+      <div>
+        <h3>Expected answer</h3>
+        <div class="box">{{ result.expected_answer if result.expected_answer is not none else "Not provided" }}</div>
+      </div>
+    </div>
+    <h3>Scores</h3>
+    <table>
+      <thead><tr>
+        <th>Precision@{{ meta.config.top_k }}</th><th>Recall@{{ meta.config.top_k }}</th><th>Hit@{{ meta.config.top_k }}</th><th>RR</th>
+        <th>EM</th><th>F1</th><th>Similarity*</th><th>Groundedness*</th><th>Latency</th>
+      </tr></thead>
+      <tbody><tr>
+        {% if result.retrieval %}
+        <td>{{ result.retrieval.precision_at_k | score }}</td><td>{{ result.retrieval.recall_at_k | score }}</td>
+        <td>{{ result.retrieval.hit_rate_at_k | score }}</td><td>{{ result.retrieval.reciprocal_rank | score }}</td>
+        {% else %}
+        <td>-</td><td>-</td><td>-</td><td>-</td>
+        {% endif %}
+        {% set a = result.answer_scores %}
+        <td>{{ (a.exact_match if a else None) | score }}</td><td>{{ (a.token_f1 if a else None) | score }}</td>
+        <td>{{ (a.answer_similarity if a else None) | score }}</td><td>{{ (a.groundedness if a else None) | score }}</td>
+        <td>{{ result.latency_ms | ms }}</td>
+      </tr></tbody>
+    </table>
+    {% if result.answer_scores and result.answer_scores.unsupported_terms %}
+    <p class="muted">Answer terms not found in retrieved contexts: {{ result.answer_scores.unsupported_terms | join(", ") }}</p>
+    {% endif %}
+    {% if result.judge_scores or result.judge_errors %}
+    <h3>External judges</h3>
+    <div class="box">{% for name, value in result.judge_scores.items() %}{{ name }}: {{ value | score }}
+{% endfor %}{% for name, error in result.judge_errors.items() %}{{ name }} failed: {{ error }}
+{% endfor %}</div>
+    {% endif %}
+    {% if result.error %}
+    <h3>Pipeline error</h3>
+    <div class="box">{{ result.error }}</div>
+    {% endif %}
+    <div class="cols">
+      <div>
+        <h3>Retrieved contexts ({{ result.contexts | length }})</h3>
+        {% if result.contexts %}
+        <ol class="ctx">
+          {% for ctx in result.contexts %}
+          {% set relevant = result.retrieval is not none and loop.index in result.retrieval.relevant_ranks %}
+          <li class="{{ 'rel' if relevant }}">
+            {% if relevant %}<span class="rel-flag">RELEVANT</span> {% endif %}{{ ctx.text }}
+            <div class="src">{{ ctx.doc_id or "no doc id" }}{% if ctx.score is not none %} &middot; score {{ ctx.score | score }}{% endif %}</div>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <p class="muted">No contexts retrieved.</p>
+        {% endif %}
+      </div>
+      <div>
+        <h3>Ground truth</h3>
+        {% if result.relevant_doc_ids %}
+        <div class="box">Relevant doc ids: {{ result.relevant_doc_ids | join(", ") }}</div>
+        {% elif result.expected_context %}
+        <ol class="ctx">{% for text in result.expected_context %}<li>{{ text }}</li>{% endfor %}</ol>
+        {% else %}
+        <p class="muted">No retrieval ground truth; retrieval metrics skipped.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</details>
+{% endfor %}
+
+<p class="notes">* Answer similarity and groundedness are lexical heuristics. They approximate overlap with the reference and with retrieved text; they do not verify factual correctness.</p>
+</main>
+</body>
+</html>

@@ -28,11 +28,17 @@ A lightweight framework for measuring Retrieval-Augmented Generation (RAG) pipel
 Requires Python 3.11 or newer.
 
 ```bash
-git clone <repository-url> rag-eval-harness
+pip install ragsonar
+```
+
+This installs the `rag-eval` command and the `rag_eval` Python package. To work from source:
+
+```bash
+git clone https://github.com/zahidhasann88/rag-eval-harness.git
 cd rag-eval-harness
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install .                    # or: pip install -e ".[dev]" for development
+pip install -e ".[dev]"
 ```
 
 ## Quick start
@@ -320,4 +326,4 @@ pytest --cov
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/zahidhasann88/rag-eval-harness/blob/main/LICENSE).

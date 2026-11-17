@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "rag-eval-harness"
+name = "ragsonar"
 dynamic = ["version"]
 description = "Deterministic, offline evaluation of retrieval and answer quality for RAG pipelines."
 readme = "README.md"
@@ -29,6 +29,12 @@ dependencies = [
     "rich>=13.7",
     "typer>=0.12",
 ]
+
+[project.urls]
+Homepage = "https://github.com/zahidhasann88/rag-eval-harness"
+Repository = "https://github.com/zahidhasann88/rag-eval-harness"
+Changelog = "https://github.com/zahidhasann88/rag-eval-harness/blob/main/CHANGELOG.md"
+Issues = "https://github.com/zahidhasann88/rag-eval-harness/issues"
 
 [project.optional-dependencies]
 dev = [
